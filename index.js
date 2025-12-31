@@ -1,7 +1,7 @@
 const express = require("express");
 const { v4: uuidv4 } = require("uuid");
 const serverless = require("serverless-http");
-const sql = require("../db");
+const sql = require("./db");
 
 const app = express();
 app.use(express.json());
