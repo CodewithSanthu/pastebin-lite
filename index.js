@@ -1,12 +1,14 @@
 const express = require("express");
 const { v4: uuidv4 } = require("uuid");
-const db = require("./db");
+const serverless = require("serverless-http");
+const db = require("../db");
 const app = express();
 
 app.use(express.json());
 app.set("view engine", "ejs");
 
 const TEST_MODE = process.env.TEST_MODE === "1";
+
 
 function getCurrentTime(req) {
   if (TEST_MODE && req.headers["x-test-now-ms"]) {
@@ -108,4 +110,4 @@ app.get("/p/:id", (req, res) => {
   });
 });
 
-module.exports = app;
+module.exports = serverless(app);
