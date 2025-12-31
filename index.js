@@ -16,6 +16,11 @@ function getCurrentTime(req) {
   return Date.now();
 }
 
+app.get("/", (req, res) => {
+  res.send("Pastebin Lite API is running");
+});
+
+
 // Health check
 app.get("/api/healthz", async (req, res) => {
   try {
