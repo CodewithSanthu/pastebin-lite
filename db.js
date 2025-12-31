@@ -1,18 +1,10 @@
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require("pg");
 
-const db = new sqlite3.Database('./pastes.db');
-
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS pastes (
-      id TEXT PRIMARY KEY,
-      content TEXT NOT NULL,
-      ttl_seconds INTEGER,
-      max_views INTEGER,
-      created_at INTEGER,
-      views INTEGER DEFAULT 0
-    )
-  `);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_yi6GFfgIbD2O@ep-late-butterfly-a4x0gick-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require',
+  ssl: { rejectUnauthorized: false }
 });
 
-module.exports = db;
+module.exports = {
+  query: (text, params) => pool.query(text, params),
+};

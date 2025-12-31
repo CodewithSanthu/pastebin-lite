@@ -9,7 +9,6 @@ app.set("view engine", "ejs");
 
 const TEST_MODE = process.env.TEST_MODE === "1";
 
-
 function getCurrentTime(req) {
   if (TEST_MODE && req.headers["x-test-now-ms"]) {
     return parseInt(req.headers["x-test-now-ms"]);
@@ -18,15 +17,17 @@ function getCurrentTime(req) {
 }
 
 // Health Check
-app.get("/api/healthz", (req, res) => {
-  db.get("SELECT 1", [], (err) => {
-    if (err) return res.status(500).json({ ok: false });
+app.get("/api/healthz", async (req, res) => {
+  try {
+    await db.query("SELECT 1");
     res.json({ ok: true });
-  });
+  } catch (e) {
+    res.status(500).json({ ok: false });
+  }
 });
 
 // Create Paste
-app.post("/api/pastes", (req, res) => {
+app.post("/api/pastes", async (req, res) => {
   const { content, ttl_seconds, max_views } = req.body;
 
   if (!content || typeof content !== "string" || !content.trim()) {
@@ -44,49 +45,51 @@ app.post("/api/pastes", (req, res) => {
   const id = uuidv4();
   const created_at = Date.now();
 
-  db.run(
-    `INSERT INTO pastes (id, content, ttl_seconds, max_views, created_at) VALUES (?, ?, ?, ?, ?)`,
-    [id, content, ttl_seconds ?? null, max_views ?? null, created_at],
-    (err) => {
-      if (err) return res.status(500).json({ error: "database error" });
+  try {
+    await db.query(
+      `INSERT INTO pastes (id, content, ttl_seconds, max_views, created_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [id, content, ttl_seconds ?? null, max_views ?? null, created_at]
+    );
 
-      res.json({
-        id,
-        url: `${req.protocol}://${req.get("host")}/p/${id}`
-      });
-    }
-  );
+    res.json({
+      id,
+      url: `${req.protocol}://${req.get("host")}/p/${id}`
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "database error" });
+  }
 });
 
-function fetchPaste(id, req, callback) {
-  db.get(`SELECT * FROM pastes WHERE id=?`, [id], (err, paste) => {
-    if (err || !paste) return callback(null);
+async function fetchPaste(id, req) {
+  const { rows } = await db.query(`SELECT * FROM pastes WHERE id = $1`, [id]);
+  const paste = rows[0];
+  if (!paste) return null;
 
-    const now = getCurrentTime(req);
+  const now = getCurrentTime(req);
 
-    if (paste.ttl_seconds) {
-      const expiresAt = paste.created_at + paste.ttl_seconds * 1000;
-      if (now >= expiresAt) return callback(null);
-    }
+  if (paste.ttl_seconds) {
+    const expiresAt = paste.created_at + paste.ttl_seconds * 1000;
+    if (now >= expiresAt) return null;
+  }
 
-    if (paste.max_views !== null && paste.views >= paste.max_views) {
-      return callback(null);
-    }
+  if (paste.max_views !== null && paste.views >= paste.max_views) {
+    return null;
+  }
 
-    callback(paste);
-  });
+  return paste;
 }
 
 // API View
-app.get("/api/pastes/:id", (req, res) => {
-  fetchPaste(req.params.id, req, (paste) => {
+app.get("/api/pastes/:id", async (req, res) => {
+  try {
+    const paste = await fetchPaste(req.params.id, req);
     if (!paste) return res.status(404).json({ error: "Not found" });
 
-    db.run(`UPDATE pastes SET views = views + 1 WHERE id=?`, [paste.id]);
+    await db.query(`UPDATE pastes SET views = views + 1 WHERE id = $1`, [paste.id]);
 
-    const now = getCurrentTime(req);
     let expires_at = null;
-
     if (paste.ttl_seconds) {
       expires_at = new Date(paste.created_at + paste.ttl_seconds * 1000).toISOString();
     }
@@ -96,18 +99,23 @@ app.get("/api/pastes/:id", (req, res) => {
       remaining_views: paste.max_views ? paste.max_views - (paste.views + 1) : null,
       expires_at
     });
-  });
+  } catch (err) {
+    res.status(500).json({ error: "server error" });
+  }
 });
 
 // HTML View
-app.get("/p/:id", (req, res) => {
-  fetchPaste(req.params.id, req, (paste) => {
+app.get("/p/:id", async (req, res) => {
+  try {
+    const paste = await fetchPaste(req.params.id, req);
     if (!paste) return res.status(404).send("Not Found");
 
-    db.run(`UPDATE pastes SET views = views + 1 WHERE id=?`, [paste.id]);
+    await db.query(`UPDATE pastes SET views = views + 1 WHERE id = $1`, [paste.id]);
 
     res.render("paste", { content: paste.content });
-  });
+  } catch (err) {
+    res.status(500).send("Server Error");
+  }
 });
 
 module.exports = serverless(app);
